@@ -1,0 +1,23 @@
+import { requireAuth } from "@/server/api-helpers/auth";
+import AuthController from "@/server/service";
+import { NextResponse } from "next/server";
+
+export const dynamic = "force-dynamic";
+
+export async function PATCH(req, { params }) {
+  try {
+    requireAuth(req.headers);
+    const payload = await req.json();
+    const auth = new AuthController();
+    await auth.UpdateUserProfile({ ...payload, userId: params.userId });
+    return NextResponse.json(
+      { msg: "updated profile successfully updated" },
+      { status: 200 }
+    );
+  } catch (e) {
+    return NextResponse.json(
+      { message: e.message || "Failed" },
+      { status: e.status || e.statusCode || 500 }
+    );
+  }
+}
