@@ -39,7 +39,7 @@ const SideBar = ({ show, handleHideSidebar }) => {
           href="/dashboard"
           className="navbar-brand dis-none align-items-center">
           <img
-            src="/w-c-removebg-preview.png"
+            src="/33-removebg-preview.png"
             className="img-fluid "
             alt="logo"
           />
