@@ -146,7 +146,8 @@ const PlansDisplay = () => {
                   {plan?.plan} Crypto Plan
                 </h6>
                 <h2 className="card-title">{plan?.percent}%</h2>
-                <p>Short term 6 months/Long term 1 year.</p>
+                {/* <p>Short term 6 months/Long term 1 year.</p> */}
+                <p>{plan?.terms}</p>
                 <p className="card-text">
                   Enjoy your investment with Bitcoin and Ethereum growing every
                   day.
