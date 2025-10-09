@@ -76,8 +76,7 @@ export default class WithdrawalController {
       await wallet.save();
 
       // Notify user
-      const user = walletUser.user_id;
-      console.log(user, "user....");
+
       const message = `
         <p>Hi ${walletUser?.name},</p>
         <p>Your withdrawal request of <b>$${withdrawal.amount}</b> has been approved.</p>
