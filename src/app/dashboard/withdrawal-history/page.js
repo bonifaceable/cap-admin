@@ -91,7 +91,7 @@ const AdminWithdrawalsPage = () => {
                     <td>
                       <div className="d-flex align-items-center">
                         <span className="ms-3 me-3">{index + 1}</span>
-                        <span>{item?.user_name || "N/A"}</span>
+                        <span>{item?.user_id?.name || "N/A"}</span>
                       </div>
                     </td>
                     <td>${formatAmount(item?.amount)}</td>
