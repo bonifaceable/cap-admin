@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { ensureDb } from "@/lib/ensureDb";
 import WithdrawalController from "@/server/service/withdrawal";
 import { NextResponse } from "next/server";
