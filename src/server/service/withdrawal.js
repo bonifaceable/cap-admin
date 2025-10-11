@@ -2,6 +2,7 @@ import { WithdrawalRepository } from "../repository/withdrawalRepo";
 import { WalletRepository } from "../repository/walletRepo";
 import { sendEmail } from "../utils";
 import { APIError, STATUS_CODES, BadRequestError } from "../utils/app-errors";
+import { WithdrawalApprovedTemplate } from "../message-template/alert-template";
 
 export default class WithdrawalController {
   constructor() {
@@ -76,15 +77,18 @@ export default class WithdrawalController {
       await wallet.save();
 
       // Notify user
-
       const message = `
         <p>Hi ${walletUser?.name},</p>
         <p>Your withdrawal request of <b>$${withdrawal.amount}</b> has been approved.</p>
         <p>The amount has been debited from your wallet.</p>
         <p>Thank you for using Capital Plus!</p>
       `;
+      const withdrawalMessage = WithdrawalApprovedTemplate({
+        userName: walletUser?.name,
+        amount: withdrawal.amount,
+      });
 
-      sendEmail([walletUser.email], "Withdrawal Approved", message);
+      sendEmail([walletUser.email], "Withdrawal Approved", withdrawalMessage);
 
       return withdrawal;
     } catch (err) {
