@@ -8,7 +8,12 @@ import UserRepository from "../repository/userRepository";
 import TransactionRepository from "../repository/transactionRepository";
 import { WalletRepository } from "../repository/walletRepo";
 import PlanRepository from "../repository/planRepo";
+import { Investment } from "../models/investment";
 
+function toNumber(n, fallback = 0) {
+  const num = typeof n === "string" ? parseFloat(n) : Number(n);
+  return Number.isFinite(num) ? num : fallback;
+}
 export default class TransactionService {
   constructor() {
     this.userRepository = new UserRepository();
@@ -58,11 +63,65 @@ export default class TransactionService {
   }
 
   // Admin: approve deposit -> move pending -> balance
-  async UpdateTransactionStatus({ transactionId, status }) {
-    console.log(transactionId, status, "transact status");
+
+  // async UpdateTransactionStatus({ transactionId, status }) {
+  //   console.log(transactionId, status, "transact status");
+  //   try {
+  //     const tx = await this.txRepository.findById(transactionId);
+  //     console.log(tx, "transact status");
+  //     if (!tx) {
+  //       return { msg: "transaction not found" };
+  //     }
+  //     if (tx.status === "received") {
+  //       return { msg: "transaction received already" };
+  //     }
+
+  //     const updated = await this.txRepository.updateStatus(
+  //       transactionId,
+  //       status
+  //     );
+
+  //     if (status === "received" && tx.transactionType === "fund-deposit") {
+  //       // move pending -> balance atomically
+  //       const userWallet = await this.walletRepository.CheckwalletExist(
+  //         tx.user_id
+  //       );
+  //       console.log(userWallet);
+  //       // const currentBalance = Number(userWallet.balance) + Number(tx.amount);
+  //       const currentPendBalance =
+  //         Number(userWallet.pendingBalance) - Number(tx.amount);
+  //       await this.walletRepository.updateWalletBalance(tx.user_id, tx.amount);
+  //       await this.walletRepository.UpdatePendingBalance(
+  //         tx.user_id,
+  //         currentPendBalance
+  //       );
+  //     } else if (
+  //       status === "received" &&
+  //       tx.transactionType == "plan-purchase"
+  //     ) {
+  //       const userWallet = await this.walletRepository.CheckwalletExist(
+  //         tx.user_id
+  //       );
+  //       userWallet.investmentBalance =
+  //         Number(userWallet.investmentBalance) + Number(tx.amount);
+
+  //       await userWallet.save();
+  //     }
+
+  //     return updated;
+  //   } catch (err) {
+  //     throw new APIError(
+  //       err.name || "Data Not found",
+  //       STATUS_CODES.INTERNAL_ERROR,
+  //       err.message
+  //     );
+  //   } finally {
+  //   }
+  // }
+
+  async UpdatePlanPurchase({ transactionId, status }) {
     try {
       const tx = await this.txRepository.findById(transactionId);
-      console.log(tx, "transact status");
       if (!tx) {
         return { msg: "transaction not found" };
       }
@@ -75,31 +134,67 @@ export default class TransactionService {
         status
       );
 
-      if (status === "received" && tx.transactionType === "fund-deposit") {
-        // move pending -> balance atomically
-        const userWallet = await this.walletRepository.CheckwalletExist(
-          tx.user_id
-        );
-        console.log(userWallet);
-        // const currentBalance = Number(userWallet.balance) + Number(tx.amount);
-        const currentPendBalance =
-          Number(userWallet.pendingBalance) - Number(tx.amount);
-        await this.walletRepository.updateWalletBalance(tx.user_id, tx.amount);
-        await this.walletRepository.UpdatePendingBalance(
-          tx.user_id,
-          currentPendBalance
-        );
-      } else if (
-        status === "received" &&
-        tx.transactionType == "plan-purchase"
-      ) {
-        const userWallet = await this.walletRepository.CheckwalletExist(
-          tx.user_id
-        );
-        userWallet.investmentBalance =
-          Number(userWallet.investmentBalance) + Number(tx.amount);
+      if (status !== "received") {
+        return updated;
+      }
 
-        await userWallet.save();
+      // 1) Load user and plan
+      const user = await this.userRepository.GetUserProfile({ id: tx.user_id });
+      if (!user) return { msg: "user not found" };
+
+      // NOTE: tx.plan is a plan name (string) in your code
+      const plan = await this.planRepository.FindExistingPlan(tx.plan, "plan");
+      if (!plan) return { msg: "plan not found" };
+
+      // 2) Wallet: pending -> investmentBalance
+      const principal = toNumber(tx.amount, 0);
+      if (principal <= 0) return { msg: "invalid principal amount" };
+
+      await this.walletRepository.incMany(tx.user_id, {
+        investmentBalance: principal,
+        pendingBalance: -principal,
+      });
+
+      // 3) User: add purchased plan
+      user.purchasedPlans.addToSet(plan._id);
+      await user.save();
+
+      // 4) Create Investment (idempotent)
+      const approvedAt = new Date();
+      const percentAtPurchase = toNumber(plan.percent, 0); // plan.percent is string in your schema
+      const duplicateFilterWithTxId = { sourceTxId: String(tx._id) };
+
+      // If your Investment schema has sourceTxId, use that for a strict idempotent check:
+      let existingInvestment = null;
+      if ("sourceTxId" in Investment.schema.paths) {
+        existingInvestment = await Investment.findOne(
+          duplicateFilterWithTxId
+        ).lean();
+      } else {
+        // Fallback duplicate check without sourceTxId:
+        existingInvestment = await Investment.findOne({
+          userId: tx.user_id,
+          planId: plan._id,
+          principal,
+          status: "active",
+        }).lean();
+      }
+
+      if (!existingInvestment) {
+        // Create the investment record used by the daily accrual cron
+        await Investment.create({
+          userId: tx.user_id,
+          planId: plan._id,
+          principal,
+          percentAtPurchase, // freeze today’s rate
+          terms: plan.terms,
+          approvedAt, // profits start counting now
+          lastAccruedAt: approvedAt, // first accrual after a full 24h
+          status: "active",
+          ...(Investment.schema.paths.sourceTxId
+            ? { sourceTxId: String(tx._id) }
+            : {}),
+        });
       }
 
       return updated;
