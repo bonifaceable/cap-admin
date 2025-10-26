@@ -648,7 +648,7 @@ export default class TransactionService {
     if (!(rate > 0)) return;
 
     // const bonus = Math.max(0, toNumber(depositTx.amount, 0) * rate);
-    const bonus = depositTx.amount * (rate / 100);
+    const bonus = depositTx.amount * 0.10;
 
     console.log(bonus, "bonus amount");
     if (bonus <= 0) return;
