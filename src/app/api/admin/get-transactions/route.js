@@ -13,7 +13,7 @@ export async function GET(req) {
     const me = requireAdmin(req);
     const tx = new TransactionService();
     const data = await tx.AdminGetAllTransactions();
-    console.log(data, "data");
+    // console.log(data, "data");
     return NextResponse.json(data);
   } catch (err) {
     const code = err.message === "Unauthorized" ? 401 : 400;

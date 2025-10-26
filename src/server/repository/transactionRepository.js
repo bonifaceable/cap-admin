@@ -23,7 +23,7 @@ export class TransactionRepository {
       //   .limit(limit)
       //   .skip(skip);
       const data = await TransactionModel.find();
-      console.log(data, "transactions data");
+      // console.log(data, "transactions data");
       return data;
     } catch (err) {
       console.log(err, "error transactions");
