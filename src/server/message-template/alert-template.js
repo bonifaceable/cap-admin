@@ -20,7 +20,7 @@ export const AlertTemplate = ({ userName, transactionType, creditAmount }) => {
     >
       <img
         src="https://res.cloudinary.com/dwrmw2fsn/image/upload/v1728234621/logo-dark_kriifz.png"
-        alt="Cryptech Logo"
+        alt="Capital plus Logo"
       />
       <div style="padding: 20px; text-align: center" class="content">
         <p style="font-size: 16px; line-height: 1.5;">
@@ -38,7 +38,7 @@ export const AlertTemplate = ({ userName, transactionType, creditAmount }) => {
           <li>Date: ${new Date().toLocaleDateString()}</li>
         </ul>
         <p style="font-size: 16px; line-height: 1.5;">
-          Your current balance has been updated accordingly. Thank you for being an active member of Cryptech.
+          Your current balance has been updated accordingly. Thank you for being an active member of Capital plus.
         </p>
         <p style="font-size: 16px; line-height: 1.5;">
           Need assistance? Our support team is here for you.
@@ -57,7 +57,7 @@ export const AlertTemplate = ({ userName, transactionType, creditAmount }) => {
         "
         class="footer"
       >
-        <p>&copy; 2024 Cryptech. All rights reserved.</p>
+        <p>&copy; 2024 Capital Plus. All rights reserved.</p>
       </div>
     </div>
   </body>
