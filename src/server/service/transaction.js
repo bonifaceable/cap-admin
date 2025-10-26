@@ -685,8 +685,8 @@ export default class TransactionService {
     await this.txRepository.create(
       {
         user_id: referrer._id,
-        name: referrer.name,
-        email: referrer.email,
+        user_name: referrer.name,
+        user_email: referrer.email,
         transactionType: "referral-bonus",
         amount: bonus,
         paymentMethod: "system",
@@ -725,7 +725,6 @@ export default class TransactionService {
     // do not throw; approval should not fail because email failed
     // }
   }
-  
 
   // async #maybePayReferralBonus({ depositTx, session }) {
   //   // Rule is every deposit, so no first-deposit check needed
