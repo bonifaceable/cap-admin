@@ -9,6 +9,8 @@ import TransactionRepository from "../repository/transactionRepository";
 import { WalletRepository } from "../repository/walletRepo";
 import PlanRepository from "../repository/planRepo";
 import { Investment } from "../models/investment";
+import { ReferralBonusTemplate } from "../message-template/alert-template";
+import { sendEmail } from "../utils";
 
 function toNumber(n, fallback = 0) {
   const num = typeof n === "string" ? parseFloat(n) : Number(n);
@@ -499,4 +501,244 @@ export default class TransactionService {
       );
     }
   }
+
+  async UpdateTransactionStatus({ transactionId, status }) {
+    if (!transactionId) return { msg: "transactionId required" };
+    if (!status) return { msg: "status required" };
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // 1) Load tx
+      const tx = await this.txRepository.findById(transactionId);
+      if (!tx) {
+        await session.abortTransaction();
+        return { msg: "transaction not found" };
+      }
+      if (tx.status === "received") {
+        await session.commitTransaction();
+        return { msg: "transaction already received", tx };
+      }
+
+      // 2) Update status
+      const updated = await this.txRepository.updateStatus(
+        transactionId,
+        status
+      );
+      if (status !== "received") {
+        await session.commitTransaction();
+        return { msg: `Transaction updated to ${status}`, tx: updated };
+      }
+
+      // 3) Side effects on approval
+      const amount = toNumber(tx.amount, 0);
+      if (amount <= 0) {
+        await session.abortTransaction();
+        return { msg: "invalid amount" };
+      }
+
+      if (tx.transactionType === "fund-deposit") {
+        // Move pending -> balance
+        await this.walletRepository.incMany(
+          tx.user_id,
+          { balance: amount, pendingBalance: -amount },
+          { session }
+        );
+
+        // Referral bonus
+        await this.#maybePayReferralBonus({ depositTx: tx, session });
+      } else if (tx.transactionType === "plan-purchase") {
+        // Move pending -> investment + attach plan + create Investment
+        const user = await this.userRepository.GetUserProfile({
+          id: tx.user_id,
+        });
+        if (!user) {
+          await session.abortTransaction();
+          return { msg: "user not found" };
+        }
+
+        const plan = await this.planRepository.FindExistingPlan(
+          tx.plan,
+          "plan"
+        );
+        if (!plan) {
+          await session.abortTransaction();
+          return { msg: "plan not found" };
+        }
+
+        await this.walletRepository.incMany(
+          tx.user_id,
+          { investmentBalance: amount, pendingBalance: -amount },
+          { session }
+        );
+
+        user.purchasedPlans.addToSet(plan._id);
+        await user.save({ session });
+
+        // Create Investment if it doesn't exist for this source
+        const approvedAt = new Date();
+        const percentAtPurchase = toNumber(plan.percent, 0);
+        const hasSourceTxId = !!(
+          Investment.schema.paths && Investment.schema.paths.sourceTxId
+        );
+
+        const dupFilter = hasSourceTxId
+          ? { sourceTxId: String(tx._id) }
+          : {
+              userId: tx.user_id,
+              planId: plan._id,
+              principal: amount,
+              status: "active",
+            };
+
+        const existingInv = await Investment.findOne(dupFilter)
+          .session(session)
+          .lean();
+
+        if (!existingInv) {
+          await Investment.create(
+            [
+              {
+                userId: tx.user_id,
+                planId: plan._id,
+                principal: amount,
+                percentAtPurchase,
+                terms: plan.terms,
+                approvedAt,
+                lastAccruedAt: approvedAt,
+                status: "active",
+                ...(hasSourceTxId ? { sourceTxId: String(tx._id) } : {}),
+              },
+            ],
+            { session }
+          );
+        }
+      }
+
+      await session.commitTransaction();
+      return { msg: `Transaction updated to ${status}`, tx: updated };
+    } catch (err) {
+      await session.abortTransaction();
+      throw new APIError(
+        err.name || "Update failed",
+        STATUS_CODES.INTERNAL_ERROR,
+        err.message
+      );
+    } finally {
+      session.endSession();
+    }
+  }
+
+  async #maybePayReferralBonus({ depositTx, session }) {
+    const depositor = await this.userRepository.GetUserProfile({
+      id: depositTx.user_id,
+    });
+    if (!depositor || !depositor.referredBy) return;
+
+    const rate = Number(REFERRAL_CFG.RATE || 0);
+    if (!(rate > 0)) return;
+
+    const bonus = Math.max(0, toNumber(depositTx.amount, 0) * rate);
+    if (bonus <= 0) return;
+
+    // Load referrer profile for email + name
+    const referrer = await this.userRepository.GetUserProfile({
+      id: depositor.referredBy,
+    });
+    if (!referrer || !referrer.email) return;
+
+    // Credit both bonusBalance and balance
+    await this.walletRepository.incMany(
+      referrer._id,
+      { bonusBalance: bonus, balance: bonus },
+      { session }
+    );
+
+    // Optional: create audit tx
+    if (REFERRAL_CFG.CREATE_TX_RECORD) {
+      try {
+        await this.txRepository.create(
+          {
+            user_id: referrer._id,
+            transactionType: "referral-bonus",
+            amount: bonus,
+            paymentMethod: "system",
+            status: "received",
+            walletAddress: "",
+            // meta: { sourceDepositId: String(depositTx._id), referredUserId: String(depositor._id), rate },
+          },
+          { session }
+        );
+      } catch (e) {
+        console.warn("Referral audit transaction write failed:", e.message);
+      }
+    }
+
+    // Send email to referrer (non-blocking)
+    try {
+      const html = ReferralBonusTemplate({
+        userName: referrer.name || "Investor",
+        amount: bonus.toFixed(2),
+        brandName: process.env.BRAND_NAME || "Capital Plus",
+        dashboardUrl:
+          process.env.DASHBOARD_URL || "https://www.cap-plus.online/dashboard",
+        supportEmail: process.env.SUPPORT_EMAIL || "info@cap-plus.online",
+        logoUrl: process.env.BRAND_LOGO_URL, // optional
+        primaryColor: process.env.BRAND_PRIMARY || "#6675F5",
+      });
+      await sendEmail([referrer.email], "You earned a referral bonus", html);
+      // await sendEmail({
+      //   to: referrer.email,
+      //   subject: "You earned a referral bonus",
+      //   html,
+      //   from: process.env.MAIL_FROM, // optional override
+      // });
+    } catch (e) {
+      console.warn("Referral bonus email failed:", e.message);
+      // do not throw; approval should not fail because email failed
+    }
+  }
+
+  // async #maybePayReferralBonus({ depositTx, session }) {
+  //   // Rule is every deposit, so no first-deposit check needed
+  //   const depositor = await this.userRepository.GetUserProfile({
+  //     id: depositTx.user_id,
+  //   });
+  //   if (!depositor || !depositor.referredBy) return; // no referrer
+
+  //   const rate = Number(REFERRAL_CFG.RATE || 0);
+  //   if (!(rate > 0)) return;
+
+  //   const bonus = Math.max(0, toNumber(depositTx.amount, 0) * rate);
+  //   if (bonus <= 0) return;
+
+  //   // Credit both bonusBalance and balance
+  //   await this.walletRepository.incMany(
+  //     depositor.referredBy,
+  //     { bonusBalance: bonus, balance: bonus },
+  //     { session }
+  //   );
+
+  //   if (REFERRAL_CFG.CREATE_TX_RECORD) {
+  //     try {
+  //       // If your TransactionModel has an enum for transactionType or no meta field,
+  //       // and this fails validation, the catch below will swallow it to avoid breaking approvals.
+  //       await this.txRepository.create(
+  //         {
+  //           user_id: depositor.referredBy,
+  //           transactionType: "referral-bonus",
+  //           amount: bonus,
+  //           paymentMethod: "system",
+  //           status: "received",
+  //           walletAddress: "",
+  //           // meta: { sourceDepositId: String(depositTx._id), referredUserId: String(depositor._id), rate },
+  //         },
+  //         { session }
+  //       );
+  //     } catch (e) {
+  //       console.warn("Referral audit transaction write failed:", e.message);
+  //     }
+  //   }
+  // }
 }

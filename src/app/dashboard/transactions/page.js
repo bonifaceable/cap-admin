@@ -86,8 +86,6 @@ const Filters = ({ values, onChange, onRefresh, loading }) => {
 };
 
 const TransactionsPage = () => {
-  // const dispatch = useDispatch();
-
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [updatingItem, setUpdatingItem] = useState(null);
@@ -130,8 +128,9 @@ const TransactionsPage = () => {
 
       if (filters.q) {
         const q = filters.q.toLowerCase();
-        const hay =
-          `${t.user_name || ""} ${t.user_email || ""} ${t._id || ""}`.toLowerCase();
+        const hay = `${t.user_name || ""} ${t.user_email || ""} ${
+          t._id || ""
+        }`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -151,9 +150,6 @@ const TransactionsPage = () => {
     setConfirmLoading(true);
     setUpdatingItem(id);
     try {
-      // If you want Redux instead, keep your original:
-      // dispatch(ApproveDeposit({ id, data: { status: "received" } }));
-
       await approveTransaction(id);
       toast("Transaction approved");
       await load();
@@ -169,8 +165,7 @@ const TransactionsPage = () => {
 
   return (
     <>
-      {/* <h4 className="mb-3">Transactions</h4> */}
-      <div className="mt-3">
+      <div className="mt-3 d-flex justify-content-between align-items-center">
         <div>
           <h1>Transactions</h1>
           <p>Manage transactions</p>
@@ -183,6 +178,7 @@ const TransactionsPage = () => {
           </button>
         </div>
       </div>
+
       <br />
       <br />
 
@@ -239,29 +235,39 @@ const TransactionsPage = () => {
                 <td className="text-break">{item?._id}</td>
                 <td>{formatDate(item?.createdAt)}</td>
 
-                <td className="text-end">
-                  <div className="dropdown position-static">
+                {/* Actions */}
+                <td className="text-end position-relative">
+                  <div
+                    className="dropdown dropup" // opens upward to avoid clipping
+                    data-bs-boundary="viewport" // keep within viewport
+                    data-bs-reference="parent" // position relative to this cell
+                  >
                     <button
                       className="btn btn-sm btn-light dropdown-toggle"
+                      type="button"
                       data-bs-toggle="dropdown"
-                      data-bs-display="static">
+                      data-bs-display="static" // stable in responsive tables
+                      data-bs-offset="0,8">
                       {updatingItem === item._id ? "Updating…" : "Actions"}
                     </button>
+
                     <ul className="dropdown-menu dropdown-menu-end">
                       <li>
-                        <a
+                        <button
                           className="dropdown-item"
-                          onClick={() => openDetails(item)}>
+                          onClick={() => openDetails(item)}
+                          type="button">
                           View details
-                        </a>
+                        </button>
                       </li>
                       {item.status !== "received" && (
                         <li>
-                          <a
+                          <button
                             className="dropdown-item text-success"
-                            onClick={() => openConfirm(item)}>
+                            onClick={() => openConfirm(item)}
+                            type="button">
                             Approve
-                          </a>
+                          </button>
                         </li>
                       )}
                     </ul>

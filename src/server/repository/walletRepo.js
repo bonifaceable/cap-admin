@@ -227,4 +227,12 @@ export class WalletRepository {
       );
     }
   }
+
+  async incMany(userId, incMap, { session } = {}) {
+    return await Wallet.updateOne(
+      { user_id: userId },
+      { $inc: incMap, $set: { lastUpdated: new Date() } },
+      { session }
+    );
+  }
 }

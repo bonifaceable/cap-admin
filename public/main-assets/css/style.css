@@ -13629,3 +13629,8 @@ footer .widget-instagram .insta-hover i {
 .custom-pad-container {
   padding-top: 90px !important;
 }
+
+.table-responsive {
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+}

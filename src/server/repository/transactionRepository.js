@@ -52,6 +52,17 @@ export class TransactionRepository {
       throw new APIError("API Error", STATUS_CODES.INTERNAL_ERROR, err.message);
     }
   }
+
+  async findFirstApprovedDepositForUser(userId, { session } = {}) {
+    return await TransactionModel.findOne({
+      user_id: userId,
+      transactionType: "fund-deposit",
+      status: "received",
+    })
+      .sort({ createdAt: 1 })
+      .session(session || null)
+      .lean();
+  }
 }
 
 export default TransactionRepository;
