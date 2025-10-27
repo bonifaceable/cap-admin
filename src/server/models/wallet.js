@@ -18,6 +18,7 @@ const walletSchema = new Schema(
     investmentBalance: { type: Number, default: 0 },
     profits: { type: Number, default: 0 },
     bonusBalance: { type: Number, default: 0 },
+    pendingWithdrawal: { type: Number, default: 0 },
 
     // you referenced these in code, so keep them
     walletAddress: { type: String },

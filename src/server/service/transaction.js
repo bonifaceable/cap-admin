@@ -553,6 +553,7 @@ export default class TransactionService {
         await this.#maybePayReferralBonus({ depositTx: tx, session });
       } else if (tx.transactionType === "plan-purchase") {
         // Move pending -> investment + attach plan + create Investment
+
         const user = await this.userRepository.GetUserProfile({
           id: tx.user_id,
         });
@@ -568,6 +569,10 @@ export default class TransactionService {
         if (!plan) {
           await session.abortTransaction();
           return { msg: "plan not found" };
+        }
+
+        if (tx.paymentMethod !== "wallet") {
+          await this.#maybePayReferralBonus({ depositTx: tx, session });
         }
 
         await this.walletRepository.incMany(
@@ -648,7 +653,7 @@ export default class TransactionService {
     if (!(rate > 0)) return;
 
     // const bonus = Math.max(0, toNumber(depositTx.amount, 0) * rate);
-    const bonus = depositTx.amount * 0.10;
+    const bonus = depositTx.amount * 0.1;
 
     console.log(bonus, "bonus amount");
     if (bonus <= 0) return;

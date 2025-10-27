@@ -1,11 +1,13 @@
 import { requireAdmin } from "@/server/auth/requireAdmin";
 import TransactionService from "@/server/service/transaction";
 import { NextResponse } from "next/server";
+import { ensureDb } from "@/lib/ensureDb";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req, { params }) {
   try {
+    await ensureDb();
     // requireAdmin(req.headers);
     const { status } = await req.json();
     const tx = new TransactionService();

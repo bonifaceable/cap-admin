@@ -73,7 +73,8 @@ export default class WithdrawalController {
       console.log(wallet, "wallet ...");
       if (!wallet) throw new BadRequestError("Wallet not found");
 
-      wallet.balance = Number(wallet.balance) - Number(withdrawal.amount);
+      wallet.pendingWithdrawal =
+        Number(wallet.pendingWithdrawal) - Number(withdrawal.amount);
       await wallet.save();
 
       // Notify user
