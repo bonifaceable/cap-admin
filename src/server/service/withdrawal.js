@@ -100,4 +100,55 @@ export default class WithdrawalController {
       );
     }
   }
+
+  // withdrawals summary for user
+  // get user withdrawals summary
+  async GetUserWithdrawalsSummary(userId) {
+    try {
+      console.log(userId, "user id in service...");
+      const wallet = await this.withdrawalRepository.getUserWithdrawalsSummary(
+        userId,
+        "approved"
+      );
+      console.log(wallet, "withdrawals summary in service...");
+      return wallet;
+    } catch (err) {
+      throw new APIError(
+        err.name || "API Error",
+        err.statusCode || STATUS_CODES.INTERNAL_ERROR,
+        err.message
+      );
+    }
+  }
+
+  // withdrawal service (controller)
+  async GetAllUsersWithdrawalsSummary() {
+    try {
+      const withdrawals = await this.withdrawalRepository.GetAllWithdrawals();
+
+      // Group totals per user
+      const summary = {};
+      withdrawals.forEach((w) => {
+        const userId = w.user_id?._id?.toString();
+        if (!summary[userId]) {
+          summary[userId] = {
+            user: w.user_id,
+            totalAmount: 0,
+          };
+        }
+        if (w.status === "approved") {
+          summary[userId].totalAmount += Number(w.amount) || 0;
+        }
+      });
+
+      // Convert to array for easy use on frontend
+      return Object.values(summary);
+    } catch (err) {
+      throw new APIError(
+        err.name || "API Error",
+        err.statusCode || STATUS_CODES.INTERNAL_ERROR,
+        err.message
+      );
+    }
+  }
 }

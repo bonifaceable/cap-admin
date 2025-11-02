@@ -57,4 +57,62 @@ export class WithdrawalRepository {
       );
     }
   }
+
+  // get user withdrawals summary
+  async getUserWithdrawalsSummary(userId, status) {
+    try {
+      // 1) Validate ObjectId
+      const isValid = mongoose.Types.ObjectId.isValid(userId);
+      if (!isValid) {
+        return { totalAmount: 0, count: 0, lastWithdrawalAt: null };
+      }
+
+      const match = { user_id: new mongoose.Types.ObjectId(userId) };
+      if (status) {
+        // allow single string or array of statuses
+        if (Array.isArray(status)) {
+          match.status = { $in: status };
+        } else {
+          match.status = status;
+        }
+      }
+
+      // 2) Coerce amount to number so $sum won't throw
+      const rows = await Withdrawal.aggregate([
+        { $match: match },
+        // add a numeric field from `amount`, tolerating strings/null
+        {
+          $addFields: {
+            amountNum: {
+              $cond: [
+                { $ne: ["$amount", null] },
+                { $toDouble: "$amount" }, // works for numbers and numeric strings
+                0,
+              ],
+            },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalAmount: { $sum: "$amountNum" },
+            count: { $sum: 1 },
+            lastWithdrawalAt: { $max: "$createdAt" }, // if your schema uses `date`, change to "$date"
+          },
+        },
+      ]);
+
+      const row = rows && rows.length ? rows[0] : null;
+
+      return {
+        totalAmount: row ? row.totalAmount : 0,
+        count: row ? row.count : 0,
+        lastWithdrawalAt: row ? row.lastWithdrawalAt : null,
+      };
+    } catch (err) {
+      // helpful log, then safe fallback
+      console.error("getUserWithdrawalsSummary error:", err);
+      return { totalAmount: 0, count: 0, lastWithdrawalAt: null };
+    }
+  }
 }
