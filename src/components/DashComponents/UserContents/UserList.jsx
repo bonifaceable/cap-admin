@@ -95,7 +95,7 @@ const UserList = () => {
                         <td>{user?.name}</td>
                         <td>{formatDate(user?.wallet?.updatedAt)}</td>
                         <td>{user?.email}</td>
-                        <td>{formatAmount(user?.wallet?.balance)}</td>
+                        <td>{formatAmount(user?.wallet?.balance + user?.wallet?.profits)}</td>
                         <td>{formatAmount(user?.wallet?.investmentBalance)}</td>
                         <td>{formatAmount(user?.wallet?.profits)}</td>
                         <td>
