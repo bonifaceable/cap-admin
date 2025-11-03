@@ -19,3 +19,8 @@ export const unblockUser = async (id) => {
   const res = await APIs.patch(`/admin/users/${id}/unblock`);
   return res.data;
 };
+
+export const deleteUser = async (id) => {
+  const res = await APIs.patch(`/admin/users/${id}/delete`);
+  return res.data;
+};

@@ -380,6 +380,32 @@ export default class AuthController {
     }
   }
 
+  async DeleteUserAccount(userId) {
+    console.log(userId, "user id service");
+    try {
+      const validUser = await this.userRepository.FindExistingUser(
+        userId,
+        "id"
+      );
+      if (!validUser) {
+        throw new BadRequestError("user with the email does not exist", true);
+      }
+      if (validUser) {
+        await this.userRepository.DeleteUser({ userId });
+        return FormatData({ message: "User account deleted successfully" });
+      } else {
+        let message = "Invalid user";
+        return message;
+      }
+    } catch (err) {
+      throw new APIError(
+        err.name ? err.name : "Data Not found",
+        err.statusCode ? err.statusCode : STATUS_CODES.INTERNAL_ERROR,
+        err.message
+      );
+    }
+  }
+
   // Register Vendor
   async VendorSignUp({
     name,

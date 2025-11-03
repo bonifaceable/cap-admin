@@ -194,6 +194,18 @@ export class UserRepository {
   async SetBlocked({ userId, blocked }) {
     return User.findByIdAndUpdate(userId, { blocked }, { new: true });
   }
+
+  async DeleteUser({ userId }) {
+    try {
+      return await User.findByIdAndDelete(userId);
+    } catch (err) {
+      throw new APIError(
+        "API Error",
+        STATUS_CODES.INTERNAL_ERROR,
+        `Unable to delete user ${err.message}`
+      );
+    }
+  }
 }
 
 export default UserRepository;

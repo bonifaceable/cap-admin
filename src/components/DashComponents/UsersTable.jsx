@@ -7,6 +7,7 @@ import {
   setUserStatus,
   blockUser,
   unblockUser,
+  deleteUser,
 } from "@/redux/services/adminUsers";
 import ConfirmActionModal from "./Modals/ConfirmActionModal";
 // import ConfirmActionModal from "@/components/ConfirmActionModal";
@@ -58,6 +59,9 @@ const AdminUsersTable = () => {
       } else if (action === "unblock") {
         await unblockUser(user.id);
         toast("User unblocked");
+      } else if (action === "delete") {
+        await deleteUser(user.id);
+        toast("User deleted successfully");
       }
       closeConfirm();
       load();
@@ -127,7 +131,61 @@ const AdminUsersTable = () => {
                 <td>
                   {u.createdAt ? new Date(u.createdAt).toLocaleString() : "—"}
                 </td>
-                <td className="text-end">
+                <td className="text-end position-relative">
+                  <div
+                    className="dropdown dropup" // opens upward to avoid clipping
+                    data-bs-boundary="viewport" // keep within viewport
+                    data-bs-reference="parent" // position relative to this cell
+                  >
+                    <button
+                      className="btn btn-sm btn-light dropdown-toggle"
+                      type="button"
+                      data-bs-toggle="dropdown"
+                      data-bs-display="static" // stable in responsive tables
+                      data-bs-offset="0,8">
+                      Actions
+                    </button>
+
+                    <ul className="dropdown-menu dropdown-menu-end">
+                      <li>
+                        <a
+                          className="dropdown-item"
+                          onClick={() => openConfirm(u, "verify")}>
+                          Verify
+                        </a>
+                      </li>
+                      {!u.blocked && (
+                        <li>
+                          <a
+                            className="dropdown-item text-danger"
+                            onClick={() => openConfirm(u, "block")}>
+                            Block
+                          </a>
+                        </li>
+                      )}
+                      {u.blocked && (
+                        <li>
+                          <a
+                            className="dropdown-item text-success"
+                            onClick={() => openConfirm(u, "unblock")}>
+                            Unblock
+                          </a>
+                        </li>
+                      )}
+                      <li>
+                        <hr className="dropdown-divider" />
+                      </li>
+                      <li>
+                        <a
+                          className="dropdown-item text-danger"
+                          onClick={() => openConfirm(u, "delete")}>
+                          Delete Account
+                        </a>
+                      </li>
+                    </ul>
+                  </div>
+                </td>
+                {/* <td className="text-end">
                   <div className="dropdown position-static">
                     <button
                       className="btn btn-sm btn-light"
@@ -163,7 +221,7 @@ const AdminUsersTable = () => {
                       )}
                     </ul>
                   </div>
-                </td>
+                </td> */}
               </tr>
             ))}
             {users.length === 0 && !loading && (
@@ -186,17 +244,23 @@ const AdminUsersTable = () => {
             ? "Verify User"
             : confirm.action === "block"
               ? "Block User"
-              : "Unblock User"
+              : confirm.action === "unblock"
+                ? "Unblock User"
+                : "Delete User Account"
         }
         confirmLabel={
           confirm.action === "verify"
             ? "Verify"
             : confirm.action === "block"
               ? "Block"
-              : "Unblock"
+              : confirm.action === "unblock"
+                ? "Unblock"
+                : "Delete"
         }
         confirmClass={
-          confirm.action === "block" ? "btn-danger" : "btn-primary"
+          confirm.action === "block" || confirm.action === "delete"
+            ? "btn-danger"
+            : "btn-primary"
         }>
         <p className="mb-3">
           {confirm.action === "verify" &&
@@ -205,6 +269,8 @@ const AdminUsersTable = () => {
             "This will block the account and send a notification email."}
           {confirm.action === "unblock" &&
             "This will unblock the account and send a notification email."}
+          {confirm.action === "delete" &&
+            "This will permanently delete this user account and all associated data. This action cannot be undone."}
         </p>
         {confirm.action === "block" && (
           <div className="form-group">
