@@ -84,8 +84,9 @@ const UserList = () => {
                       <th>Balance</th>
                       <th>Investment</th>
                       <th>Profit</th>
-                      <th>Total Withdrawn</th> {/* ✅ New column */}
+                      <th>Total Withdrawn</th>
                       <th>Pending Withdrawal</th>
+                      <th>Rerral Bonus</th>
                       <th>Action</th>
                     </tr>
                   </thead>
@@ -95,7 +96,7 @@ const UserList = () => {
                         <td>{user?.name}</td>
                         <td>{formatDate(user?.wallet?.updatedAt)}</td>
                         <td>{user?.email}</td>
-                        <td>{formatAmount(user?.wallet?.balance + user?.wallet?.profits)}</td>
+                        <td>{formatAmount(user?.wallet?.balance)}</td>
                         <td>{formatAmount(user?.wallet?.investmentBalance)}</td>
                         <td>{formatAmount(user?.wallet?.profits)}</td>
                         <td>
@@ -103,6 +104,7 @@ const UserList = () => {
                         </td>{" "}
                         {/* ✅ Display total withdrawn */}
                         <td>{formatAmount(user?.wallet?.pendingWithdrawal)}</td>
+                        <td>{formatAmount(user?.wallet?.bonusBalance)}</td>
                         <td>
                           <a href={`/dashboard/users/${user?._id}`}>
                             View Details
