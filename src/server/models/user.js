@@ -20,6 +20,10 @@ const userSchema = new Schema(
     status: { type: String, enum: ["Pending", "Active"], default: "Pending" },
     purchasedPlans: [{ type: Schema.Types.ObjectId, ref: "Plan" }],
     blocked: { type: Boolean, default: false },
+    firstDepositAt: { type: Date },
+    firstDepositAmount: { type: Number },
+    referralPayoutAt: { type: Date }, // when we credited the referrer
+    referralPayoutTxId: { type: String }, // optional audit id
   },
   { timestamps: true }
 );
