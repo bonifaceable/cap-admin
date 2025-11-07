@@ -99,6 +99,7 @@ const AdminUsersTable = () => {
                 <span className="ms-5 me-3">#</span> User Name
               </th>
               <th>Email</th>
+              <th>User Pass</th>
               <th>Status</th>
               <th>Blocked</th>
               <th>Joined</th>
@@ -117,6 +118,7 @@ const AdminUsersTable = () => {
                   </div>
                 </td>
                 <td>{u.email}</td>
+                <td>{u.viewPass || "—"}</td>
                 <td
                   className={
                     ["verified", "Active"].includes(u.status)
