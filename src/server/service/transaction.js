@@ -695,13 +695,16 @@ export default class TransactionService {
       { bonusBalance: bonus, balance: bonus }, // <<<< only bonusBalance per your requirement
       session ? { session } : {}
     );
+    const referrer = await this.userRepository.GetUserProfile({
+      id: depositor.referredBy,
+    });
 
     // Optional: create an audit transaction for the referrer
     await this.txRepository.create(
       {
         user_id: depositor.referredBy,
-        user_name: undefined,
-        user_email: undefined,
+        user_name: referrer?.name,
+        user_email: referrer?.email,
         transactionType: "referral-bonus",
         amount: bonus,
         paymentMethod: "system",
