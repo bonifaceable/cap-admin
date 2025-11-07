@@ -655,13 +655,16 @@ export default class TransactionService {
   // <<<< NEW: one-time, first-deposit referral payout (10%), idempotent via ReferralPayout
 
   // Admin or webhook: update tx status and apply side-effects
-  
+
   async UpdateTransactionStatus({ transactionId, status }) {
     if (!transactionId) return { msg: "transactionId required" };
     if (!status) return { msg: "status required" };
 
     const session = await mongoose.startSession();
     session.startTransaction();
+
+    // keep track of whether we should run the referral after commit
+    let postCommitReferral = null; // { source, amount, depositorUserId }
 
     try {
       const tx = await this.txRepository.findById(transactionId);
@@ -674,9 +677,11 @@ export default class TransactionService {
         return { msg: "transaction already received", tx };
       }
 
+      // IMPORTANT: ensure this uses the same session internally
       const updated = await this.txRepository.updateStatus(
         transactionId,
-        status
+        status,
+        { session }
       );
       if (status !== "received") {
         await session.commitTransaction();
@@ -690,20 +695,18 @@ export default class TransactionService {
       }
 
       if (tx.transactionType === "fund-deposit") {
-        // Move pending -> balance
         await this.walletRepository.incMany(
           tx.user_id,
           { balance: amount, pendingBalance: -amount },
           { session }
         );
 
-        // First-deposit referral bonus (10%) -> bonusBalance only
-        await this.#maybePayReferralBonusFirst({
+        // Defer referral payout until AFTER commit
+        postCommitReferral = {
           source: "deposit",
           amount,
           depositorUserId: tx.user_id,
-          session,
-        });
+        };
       } else if (tx.transactionType === "plan-purchase") {
         const user = await this.userRepository.GetUserProfile({
           id: tx.user_id,
@@ -722,14 +725,13 @@ export default class TransactionService {
           return { msg: "plan not found" };
         }
 
-        // If paid externally (not from wallet), this counts as deposit for referral
         if (tx.paymentMethod !== "wallet") {
-          await this.#maybePayReferralBonusFirst({
+          // Defer referral payout on external funding
+          postCommitReferral = {
             source: "plan",
             amount,
             depositorUserId: tx.user_id,
-            session,
-          });
+          };
         }
 
         await this.walletRepository.incMany(
@@ -759,7 +761,6 @@ export default class TransactionService {
         const existingInv = await Investment.findOne(dupFilter)
           .session(session)
           .lean();
-
         if (!existingInv) {
           await Investment.create(
             [
@@ -781,6 +782,17 @@ export default class TransactionService {
       }
 
       await session.commitTransaction();
+
+      // Run referral payout OUTSIDE the transaction to avoid aborts
+      if (postCommitReferral) {
+        const { source, amount, depositorUserId } = postCommitReferral;
+        await this.#maybePayReferralBonusFirst({
+          source,
+          amount,
+          depositorUserId,
+        }); // no session
+      }
+
       return { msg: `Transaction updated to ${status}`, tx: updated };
     } catch (err) {
       await session.abortTransaction();
@@ -794,25 +806,20 @@ export default class TransactionService {
     }
   }
 
-  async #maybePayReferralBonusFirst({
-    source,
-    amount,
-    depositorUserId,
-    session = null,
-  }) {
-    const depositor = await this.userRepository.GetUserProfile({
-      id: depositorUserId,
-    });
-    if (!depositor || !depositor.referredBy) return; // no referrer
-
-    const ratePct = 10; // per your spec
-    const bonus = toNumber(amount, 0) * (ratePct / 100);
-    if (bonus <= 0) return;
-
-    // Try to insert audit row; unique index enforces one-time payout
+  async #maybePayReferralBonusFirst({ source, amount, depositorUserId }) {
     try {
-      await ReferralPayout.create(
-        [
+      const depositor = await this.userRepository.GetUserProfile({
+        id: depositorUserId,
+      });
+      if (!depositor || !depositor.referredBy) return;
+
+      const ratePct = 10;
+      const bonus = toNumber(amount, 0) * (ratePct / 100);
+      if (bonus <= 0) return;
+
+      // 1) Unique audit insert OUTSIDE any transaction
+      try {
+        await ReferralPayout.create([
           {
             referredUserId: depositor._id,
             referrerUserId: depositor.referredBy,
@@ -820,29 +827,26 @@ export default class TransactionService {
             bonusAmount: bonus,
             source,
           },
-        ],
-        session ? { session } : {}
-      );
-    } catch (e) {
-      const dup =
-        String(e?.code) === "11000" || /duplicate key/i.test(e?.message || "");
-      if (dup) return; // already paid
-      throw e;
-    }
+        ]);
+      } catch (e) {
+        const dup =
+          String(e?.code) === "11000" ||
+          /duplicate key/i.test(e?.message || "");
+        if (dup) return; // already paid, safe to ignore
+        throw e; // real error: log and stop payout
+      }
 
-    // Credit referrer's bonusBalance and balance ONLY (not main balance)
-    await this.walletRepository.incMany(
-      depositor.referredBy,
-      { bonusBalance: bonus, balance: bonus }, // <<<< only bonusBalance per your requirement
-      session ? { session } : {}
-    );
-    const referrer = await this.userRepository.GetUserProfile({
-      id: depositor.referredBy,
-    });
+      // 2) Credit BOTH balances (atomic update, no session)
+      await this.walletRepository.incMany(depositor.referredBy, {
+        bonusBalance: bonus,
+        balance: bonus,
+      });
 
-    // Optional: create an audit transaction for the referrer
-    await this.txRepository.create(
-      {
+      // 3) Optional: audit tx row
+      const referrer = await this.userRepository.GetUserProfile({
+        id: depositor.referredBy,
+      });
+      await this.txRepository.create({
         user_id: depositor.referredBy,
         user_name: referrer?.name,
         user_email: referrer?.email,
@@ -851,33 +855,120 @@ export default class TransactionService {
         paymentMethod: "system",
         status: "received",
         walletAddress: "system",
-      },
-      session ? { session } : {}
-    );
-
-    // Email the referrer (non-blocking)
-    try {
-      const referrer = await this.userRepository.GetUserProfile({
-        id: depositor.referredBy,
       });
-      if (referrer?.email) {
-        const html = ReferralBonusTemplate({
-          userName: referrer.name || "Investor",
-          amount: bonus.toFixed(2),
-          brandName: process.env.BRAND_NAME || "Capital Plus",
-          dashboardUrl:
-            process.env.DASHBOARD_URL ||
-            "https://www.cap-plus.online/dashboard",
-          supportEmail: process.env.SUPPORT_EMAIL || "info@cap-plus.online",
-          logoUrl: process.env.BRAND_LOGO_URL,
-          primaryColor: process.env.BRAND_PRIMARY || "#6675F5",
-        });
-        await sendEmail([referrer.email], "You earned a referral bonus", html);
+
+      // 4) Email (non-blocking)
+      try {
+        if (referrer?.email) {
+          const html = ReferralBonusTemplate({
+            userName: referrer.name || "Investor",
+            amount: bonus.toFixed(2),
+            brandName: process.env.BRAND_NAME || "Capital Plus",
+            dashboardUrl:
+              process.env.DASHBOARD_URL ||
+              "https://www.cap-plus.online/dashboard",
+            supportEmail: process.env.SUPPORT_EMAIL || "info@cap-plus.online",
+            logoUrl: process.env.BRAND_LOGO_URL,
+            primaryColor: process.env.BRAND_PRIMARY || "#6675F5",
+          });
+          await sendEmail(
+            [referrer.email],
+            "You earned a referral bonus",
+            html
+          );
+        }
+      } catch (mailErr) {
+        console.warn("Referral email failed:", mailErr?.message || mailErr);
       }
-    } catch (mailErr) {
-      console.warn("Referral bonus email failed:", mailErr?.message || mailErr);
+    } catch (err) {
+      console.error("Referral payout isolated error:", err?.message || err);
     }
   }
+
+  // async #maybePayReferralBonusFirst({
+  //   source,
+  //   amount,
+  //   depositorUserId,
+  //   session = null,
+  // }) {
+  //   const depositor = await this.userRepository.GetUserProfile({
+  //     id: depositorUserId,
+  //   });
+  //   if (!depositor || !depositor.referredBy) return; // no referrer
+
+  //   const ratePct = 10; // per your spec
+  //   const bonus = toNumber(amount, 0) * (ratePct / 100);
+  //   if (bonus <= 0) return;
+
+  //   // Try to insert audit row; unique index enforces one-time payout
+  //   try {
+  //     await ReferralPayout.create(
+  //       [
+  //         {
+  //           referredUserId: depositor._id,
+  //           referrerUserId: depositor.referredBy,
+  //           depositAmount: toNumber(amount, 0),
+  //           bonusAmount: bonus,
+  //           source,
+  //         },
+  //       ],
+  //       session ? { session } : {}
+  //     );
+  //   } catch (e) {
+  //     const dup =
+  //       String(e?.code) === "11000" || /duplicate key/i.test(e?.message || "");
+  //     if (dup) return; // already paid
+  //     throw e;
+  //   }
+
+  //   // Credit referrer's bonusBalance and balance ONLY (not main balance)
+  //   await this.walletRepository.incMany(
+  //     depositor.referredBy,
+  //     { bonusBalance: bonus, balance: bonus }, // <<<< only bonusBalance per your requirement
+  //     session ? { session } : {}
+  //   );
+  //   const referrer = await this.userRepository.GetUserProfile({
+  //     id: depositor.referredBy,
+  //   });
+
+  //   // Optional: create an audit transaction for the referrer
+  //   await this.txRepository.create(
+  //     {
+  //       user_id: depositor.referredBy,
+  //       user_name: referrer?.name,
+  //       user_email: referrer?.email,
+  //       transactionType: "referral-bonus",
+  //       amount: bonus,
+  //       paymentMethod: "system",
+  //       status: "received",
+  //       walletAddress: "system",
+  //     },
+  //     session ? { session } : {}
+  //   );
+
+  //   // Email the referrer (non-blocking)
+  //   try {
+  //     const referrer = await this.userRepository.GetUserProfile({
+  //       id: depositor.referredBy,
+  //     });
+  //     if (referrer?.email) {
+  //       const html = ReferralBonusTemplate({
+  //         userName: referrer.name || "Investor",
+  //         amount: bonus.toFixed(2),
+  //         brandName: process.env.BRAND_NAME || "Capital Plus",
+  //         dashboardUrl:
+  //           process.env.DASHBOARD_URL ||
+  //           "https://www.cap-plus.online/dashboard",
+  //         supportEmail: process.env.SUPPORT_EMAIL || "info@cap-plus.online",
+  //         logoUrl: process.env.BRAND_LOGO_URL,
+  //         primaryColor: process.env.BRAND_PRIMARY || "#6675F5",
+  //       });
+  //       await sendEmail([referrer.email], "You earned a referral bonus", html);
+  //     }
+  //   } catch (mailErr) {
+  //     console.warn("Referral bonus email failed:", mailErr?.message || mailErr);
+  //   }
+  // }
 
   // async #maybePayReferralBonus({ depositTx, session }) {
   //   // console.log(depositTx, "deposit tx in referral");
