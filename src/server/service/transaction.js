@@ -504,6 +504,158 @@ export default class TransactionService {
     }
   }
 
+  // async UpdateTransactionStatus({ transactionId, status }) {
+  //   if (!transactionId) return { msg: "transactionId required" };
+  //   if (!status) return { msg: "status required" };
+
+  //   const session = await mongoose.startSession();
+  //   session.startTransaction();
+
+  //   try {
+  //     // 1) Load tx
+  //     const tx = await this.txRepository.findById(transactionId);
+
+  //     // console.log(tx, "transaction");
+  //     if (!tx) {
+  //       await session.abortTransaction();
+  //       return { msg: "transaction not found" };
+  //     }
+  //     if (tx.status === "received") {
+  //       await session.commitTransaction();
+  //       return { msg: "transaction already received", tx };
+  //     }
+
+  //     // 2) Update status
+  //     const updated = await this.txRepository.updateStatus(
+  //       transactionId,
+  //       status
+  //     );
+  //     if (status !== "received") {
+  //       await session.commitTransaction();
+  //       return { msg: `Transaction updated to ${status}`, tx: updated };
+  //     }
+
+  //     // 3) Side effects on approval
+  //     const amount = toNumber(tx.amount, 0);
+  //     if (amount <= 0) {
+  //       await session.abortTransaction();
+  //       return { msg: "invalid amount" };
+  //     }
+
+  //     if (tx.transactionType === "fund-deposit") {
+  //       // Move pending -> balance
+  //       await this.walletRepository.incMany(
+  //         tx.user_id,
+  //         { balance: amount, pendingBalance: -amount },
+  //         { session }
+  //       );
+
+  //       // Referral bonus
+  //       // await this.#maybePayReferralBonus({ depositTx: tx, session });
+  //       // First-deposit referral bonus (10%) -> bonusBalance only
+  //       await this.#maybePayReferralBonusFirst({
+  //         source: "deposit",
+  //         amount,
+  //         depositorUserId: tx.user_id,
+  //         session,
+  //       });
+  //     } else if (tx.transactionType === "plan-purchase") {
+  //       // Move pending -> investment + attach plan + create Investment
+
+  //       const user = await this.userRepository.GetUserProfile({
+  //         id: tx.user_id,
+  //       });
+  //       if (!user) {
+  //         await session.abortTransaction();
+  //         return { msg: "user not found" };
+  //       }
+
+  //       const plan = await this.planRepository.FindExistingPlan(
+  //         tx.plan,
+  //         "plan"
+  //       );
+  //       if (!plan) {
+  //         await session.abortTransaction();
+  //         return { msg: "plan not found" };
+  //       }
+
+  //       if (tx.paymentMethod !== "wallet") {
+  //         // await this.#maybePayReferralBonus({ depositTx: tx, session });
+  //         await this.#maybePayReferralBonusFirst({
+  //           source: "plan",
+  //           amount,
+  //           depositorUserId: tx.user_id,
+  //           session,
+  //         });
+  //       }
+
+  //       await this.walletRepository.incMany(
+  //         tx.user_id,
+  //         { investmentBalance: amount, pendingBalance: -amount },
+  //         { session }
+  //       );
+
+  //       user.purchasedPlans.addToSet(plan._id);
+  //       await user.save({ session });
+
+  //       // Create Investment if it doesn't exist for this source
+  //       const approvedAt = new Date();
+  //       const percentAtPurchase = toNumber(plan.percent, 0);
+  //       const hasSourceTxId = !!(
+  //         Investment.schema.paths && Investment.schema.paths.sourceTxId
+  //       );
+
+  //       const dupFilter = hasSourceTxId
+  //         ? { sourceTxId: String(tx._id) }
+  //         : {
+  //             userId: tx.user_id,
+  //             planId: plan._id,
+  //             principal: amount,
+  //             status: "active",
+  //           };
+
+  //       const existingInv = await Investment.findOne(dupFilter)
+  //         .session(session)
+  //         .lean();
+
+  //       if (!existingInv) {
+  //         await Investment.create(
+  //           [
+  //             {
+  //               userId: tx.user_id,
+  //               planId: plan._id,
+  //               principal: amount,
+  //               percentAtPurchase,
+  //               terms: plan.terms,
+  //               approvedAt,
+  //               lastAccruedAt: approvedAt,
+  //               status: "active",
+  //               ...(hasSourceTxId ? { sourceTxId: String(tx._id) } : {}),
+  //             },
+  //           ],
+  //           { session }
+  //         );
+  //       }
+  //     }
+
+  //     await session.commitTransaction();
+  //     return { msg: `Transaction updated to ${status}`, tx: updated };
+  //   } catch (err) {
+  //     await session.abortTransaction();
+  //     throw new APIError(
+  //       err.name || "Update failed",
+  //       STATUS_CODES.INTERNAL_ERROR,
+  //       err.message
+  //     );
+  //   } finally {
+  //     session.endSession();
+  //   }
+  // }
+
+  // <<<< NEW: one-time, first-deposit referral payout (10%), idempotent via ReferralPayout
+
+  // Admin or webhook: update tx status and apply side-effects
+  
   async UpdateTransactionStatus({ transactionId, status }) {
     if (!transactionId) return { msg: "transactionId required" };
     if (!status) return { msg: "status required" };
@@ -512,10 +664,7 @@ export default class TransactionService {
     session.startTransaction();
 
     try {
-      // 1) Load tx
       const tx = await this.txRepository.findById(transactionId);
-
-      // console.log(tx, "transaction");
       if (!tx) {
         await session.abortTransaction();
         return { msg: "transaction not found" };
@@ -525,7 +674,6 @@ export default class TransactionService {
         return { msg: "transaction already received", tx };
       }
 
-      // 2) Update status
       const updated = await this.txRepository.updateStatus(
         transactionId,
         status
@@ -535,7 +683,6 @@ export default class TransactionService {
         return { msg: `Transaction updated to ${status}`, tx: updated };
       }
 
-      // 3) Side effects on approval
       const amount = toNumber(tx.amount, 0);
       if (amount <= 0) {
         await session.abortTransaction();
@@ -550,8 +697,6 @@ export default class TransactionService {
           { session }
         );
 
-        // Referral bonus
-        // await this.#maybePayReferralBonus({ depositTx: tx, session });
         // First-deposit referral bonus (10%) -> bonusBalance only
         await this.#maybePayReferralBonusFirst({
           source: "deposit",
@@ -560,8 +705,6 @@ export default class TransactionService {
           session,
         });
       } else if (tx.transactionType === "plan-purchase") {
-        // Move pending -> investment + attach plan + create Investment
-
         const user = await this.userRepository.GetUserProfile({
           id: tx.user_id,
         });
@@ -579,8 +722,8 @@ export default class TransactionService {
           return { msg: "plan not found" };
         }
 
+        // If paid externally (not from wallet), this counts as deposit for referral
         if (tx.paymentMethod !== "wallet") {
-          // await this.#maybePayReferralBonus({ depositTx: tx, session });
           await this.#maybePayReferralBonusFirst({
             source: "plan",
             amount,
@@ -598,7 +741,6 @@ export default class TransactionService {
         user.purchasedPlans.addToSet(plan._id);
         await user.save({ session });
 
-        // Create Investment if it doesn't exist for this source
         const approvedAt = new Date();
         const percentAtPurchase = toNumber(plan.percent, 0);
         const hasSourceTxId = !!(
@@ -652,7 +794,6 @@ export default class TransactionService {
     }
   }
 
-  // <<<< NEW: one-time, first-deposit referral payout (10%), idempotent via ReferralPayout
   async #maybePayReferralBonusFirst({
     source,
     amount,
