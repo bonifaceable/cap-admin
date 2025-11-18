@@ -101,6 +101,52 @@ export default class WithdrawalController {
     }
   }
 
+  async CancelWithdrawal({ withdrawalId }) {
+    try {
+      console.log(withdrawalId, "withdrawal id");
+      const withdrawal = await this.withdrawalRepository.UpdateWithdrawalStatus(
+        {
+          withdrawalId,
+          status: "rejected",
+        }
+      );
+
+      console.log(withdrawal, "withdrawal ,msd");
+
+      if (!withdrawal) throw new BadRequestError("Withdrawal not found");
+
+      // Debit wallet
+      const wallet = await this.walletRepository.ExistingWallet(
+        withdrawal.user_id
+      );
+      const walletUser = await this.walletRepository.getUserWithWallet(
+        withdrawal.user_id
+      );
+      console.log(wallet, "wallet ...");
+      if (!wallet) throw new BadRequestError("Wallet not found");
+
+      wallet.balance = Number(wallet.balance) + Number(withdrawal.amount);
+      await wallet.save();
+
+      // Notify user
+
+      // const withdrawalMessage = WithdrawalApprovedTemplate({
+      //   userName: walletUser?.name,
+      //   amount: withdrawal.amount,
+      // });
+
+      // sendEmail([walletUser.email], "Withdrawal Approved", withdrawalMessage);
+
+      return withdrawal;
+    } catch (err) {
+      throw new APIError(
+        err.name || "API Error",
+        err.statusCode || STATUS_CODES.INTERNAL_ERROR,
+        err.message
+      );
+    }
+  }
+
   // withdrawals summary for user
   // get user withdrawals summary
   async GetUserWithdrawalsSummary(userId) {

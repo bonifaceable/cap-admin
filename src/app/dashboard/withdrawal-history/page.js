@@ -12,6 +12,8 @@ const AdminWithdrawalsPage = () => {
   const [approving, setApproving] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [showModal, setShowModal] = useState(false);
+  const [canceling, setCanceling] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   // Fetch withdrawal requests
   const fetchWithdrawals = async () => {
@@ -48,6 +50,23 @@ const AdminWithdrawalsPage = () => {
       );
     } finally {
       setApproving(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!selectedItem) return;
+    try {
+      setCanceling(true);
+      await APIs.put(`/admin/withdrawals/${selectedItem._id}/cancel`);
+      toast.success("Withdrawal request canceled successfully");
+      setShowCancelModal(false);
+      fetchWithdrawals();
+    } catch (err) {
+      toast.error(
+        err?.response?.data?.message || "Failed to cancel withdrawal"
+      );
+    } finally {
+      setCanceling(false);
     }
   };
 
@@ -111,14 +130,24 @@ const AdminWithdrawalsPage = () => {
                     <td>{format(new Date(item?.createdAt), "PPpp")}</td>
                     <td>
                       {item?.status === "pending" && (
-                        <button
-                          className="btn btn-sm btn-success"
-                          onClick={() => {
-                            setSelectedItem(item);
-                            setShowModal(true);
-                          }}>
-                          Approve
-                        </button>
+                        <div className="d-flex gap-2">
+                          <button
+                            className="btn btn-sm btn-success"
+                            onClick={() => {
+                              setSelectedItem(item);
+                              setShowModal(true);
+                            }}>
+                            Approve
+                          </button>
+                          <button
+                            className="btn btn-sm btn-danger"
+                            onClick={() => {
+                              setSelectedItem(item);
+                              setShowCancelModal(true);
+                            }}>
+                            Cancel
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -156,6 +185,35 @@ const AdminWithdrawalsPage = () => {
         confirmLabel="Approve"
         confirmClass="btn-success"
         loading={approving}
+      />
+
+      {/* Confirm Cancel Modal */}
+      <ConfirmActionModal
+        show={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        onConfirm={handleCancel}
+        title="Cancel Withdrawal"
+        body={
+          selectedItem ? (
+            <>
+              You’re about to <strong>cancel</strong> a withdrawal of{" "}
+              <strong>${formatAmount(selectedItem.amount)}</strong> for user{" "}
+              <strong>{selectedItem.user_name}</strong>.
+              <br />
+              This action will:
+              <ul className="mt-2">
+                <li>Refund user’s wallet balance</li>
+                <li>Mark this withdrawal as canceled</li>
+                <li>Notify the user via email (optional)</li>
+              </ul>
+            </>
+          ) : (
+            "No item selected."
+          )
+        }
+        confirmLabel="Cancel Withdrawal"
+        confirmClass="btn-danger"
+        loading={canceling}
       />
     </div>
   );
